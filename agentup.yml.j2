@@ -1,0 +1,224 @@
+apiVersion: v1
+name: {{ name }}
+description: {{ description }}
+version: 0.0.1
+url: http://localhost:8000
+provider_organization: AgentUp
+provider_url: https://agentup.dev
+icon_url: https://raw.githubusercontent.com/RedDotRocket/AgentUp/refs/heads/main/assets/icon.png
+documentation_url: https://docs.agentup.dev
+
+agent_type: iterative
+
+memory_config:
+  persistence: true
+  max_entries: 1000
+  ttl_hours: 24
+
+iterative_config:
+  max_iterations: 30
+  reflection_interval: 1
+  require_explicit_completion: true
+  timeout_minutes: 30
+
+plugins:
+  agentup_systools:
+    capabilities:
+      create_directory:
+        required_scopes:
+          - files:write
+      delete_file:
+        required_scopes:
+          - files:admin
+      execute_command:
+        required_scopes:
+          - system:admin
+      file_exists:
+        required_scopes:
+          - files:read
+      file_hash:
+        required_scopes:
+          - files:read
+      file_info:
+        required_scopes:
+          - files:read
+      file_read:
+        required_scopes:
+          - files:read
+      file_write:
+        required_scopes:
+          - files:write
+      list_directory:
+        required_scopes:
+          - files:read
+      system_info:
+        required_scopes:
+          - system:read
+      working_directory:
+        required_scopes:
+          - system:read
+  agentup_brave:
+    capabilities:
+      search_internet:
+        required_scopes:
+          - api:read
+
+global_defaults:
+  middleware:
+    rate_limiting:
+      enabled: false
+      requests_per_minute: 60
+      burst_size: 72
+    caching:
+      enabled: false
+      backend: memory
+      default_ttl: 300
+      max_size: 1000
+    retry:
+      enabled: false
+      max_attempts: 3
+      initial_delay: 1.0
+      max_delay: 60.0
+
+logging:
+  enabled: true
+  level: INFO
+  format: text
+  console:
+    enabled: true
+    colors: true
+  correlation_id: false
+  request_logging: false
+  uvicorn:
+    access_log: false
+    disable_default_handlers: true
+    use_colors: true
+  modules:
+    a2a: ERROR
+    a2a.utils: ERROR
+    a2a.utils.telemetry: ERROR
+    httpcore.connection: ERROR
+    httpcore.http11: ERROR
+    httpx: ERROR
+
+cors:
+  enabled: true
+  origins:
+    - http://localhost:3000
+    - http://localhost:3001
+    - http://localhost:8080
+  methods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - OPTIONS
+    - HEAD
+  headers:
+    - Content-Type
+    - X-API-Key
+    - Authorization
+  allow_credentials: false
+  max_age: 600
+
+security:
+  enabled: true
+  auth:
+    api_key:
+      header_name: X-API-Key
+      location: header
+      keys:
+        - key: research-agent-key-123
+          scopes:
+            - api:read
+            - api:admin
+            - files:read
+            - files:write
+            - files:admin
+            - system:read
+            - system:write
+            - system:admin
+  scope_hierarchy:
+    api:admin:
+      - api:write
+      - api:read
+    api:write:
+      - api:read
+    files:admin:
+      - files:write
+      - files:read
+    files:write:
+      - files:read
+    system:admin:
+      - system:write
+      - system:read
+    system:write:
+      - system:read
+
+ai:
+  enabled: true
+  system_prompt: |
+{{ system_prompt | indent(4, True) }}{% if ai_provider == 'ollama' %}
+
+    **IMPORTANT TOOL CALLING NOTES FOR OLLAMA:**
+    You are running on Ollama with a local model. Please ensure:
+    - Your responses are precise and follow tool calling formats exactly
+    - Use tools systematically and verify results before proceeding
+    - If tool calls fail, try alternative approaches or simpler commands
+    - Large models (30B+ parameters) work best for tool calling tasks
+
+    **Model Performance Advisory:**
+    {% if ollama_model and ('70b' in ollama_model or '32b' in ollama_model or 'mixtral' in ollama_model) %}
+    ✅ Your configured model appears suitable for tool calling tasks.
+    {% else %}
+    ⚠️  WARNING: Smaller models may struggle with complex tool calling.
+    Consider using llama3.1:70b, qwen2.5:32b, or mixtral:8x7b for optimal results.
+    {% endif %}{% endif %}
+
+# Multi-Provider AI Configuration
+# Configure based on which provider is set via environment variables or template variables
+{% if ai_provider == 'anthropic' %}
+ai_provider:
+  provider: anthropic
+  api_key: ${ANTHROPIC_API_KEY}
+  model: claude-3-5-sonnet-20241022
+  stream: true
+  temperature: 0.7
+  max_tokens: 4000
+  top_p: 1.0
+{% elif ai_provider == 'ollama' %}
+ai_provider:
+  provider: ollama
+  model: {{ ollama_model | default('llama3.1:70b') }}  # Large model recommended for tool calling
+  base_url: ${OLLAMA_BASE_URL:http://localhost:11434}
+  stream: true
+  temperature: 0.7
+  max_tokens: 2000
+  top_p: 1.0
+  # Ollama-specific configuration optimized for tool calling
+  options:
+    num_ctx: 32768     # Large context window for complex tool sequences
+    num_predict: 2000  # Max tokens to generate
+    repeat_penalty: 1.1
+    temperature: 0.7
+{% else %}
+# Default OpenAI configuration
+ai_provider:
+  provider: openai
+  api_key: ${OPENAI_API_KEY}
+  model: gpt-4o
+  stream: true
+  temperature: 0.7
+  max_tokens: 1000
+  top_p: 1.0
+{% endif %}
+
+state_management:
+  enabled: true
+  backend: file
+  ttl: 3600
+  config:
+    storage_dir: ./conversation_states
+
+development:
+  enabled: false
